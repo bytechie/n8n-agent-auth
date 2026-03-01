@@ -1,0 +1,91 @@
+# ========================================
+# n8n Agent Auth - Docker Compose
+# ========================================
+# Local development environment with n8n and MCP Gateway
+
+version: '3.9'
+
+services:
+  # ========================================
+  # MCP Gateway Server
+  # ========================================
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: n8n-mcp-gateway
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DESCOPE_PROJECT_ID=${DESCOPE_PROJECT_ID}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/test-workflow}
+      - N8N_API_KEY=${N8N_API_KEY}
+    env_file:
+      - .env
+    depends_on:
+      - n8n
+    networks:
+      - n8n-network
+    restart: unless-stopped
+    volumes:
+      - ./gateway/src:/app/src:ro
+      - ./gateway/public:/app/public:ro
+
+  # ========================================
+  # n8n Workflow Automation
+  # ========================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-instance
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-password}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      # Generic environment variables
+      - NODE_ENV=production
+    env_file:
+      - .env
+    networks:
+      - n8n-network
+    restart: unless-stopped
+    volumes:
+      - n8n-data:/home/node/.n8n
+      # Mount custom workflow definitions (optional)
+      - ./n8n-workflows:/workflows:ro
+
+  # ========================================
+  # Optional: Caddy Reverse Proxy
+  # ========================================
+  # Uncomment for production-like local setup with SSL
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: n8n-caddy
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #     - caddy-config:/config
+  #   networks:
+  #     - n8n-network
+
+networks:
+  n8n-network:
+    driver: bridge
+
+volumes:
+  n8n-data:
+    driver: local
+  # caddy-data:
+  #   driver: local
+  # caddy-config:
+  #   driver: local
