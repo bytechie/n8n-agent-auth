@@ -1,0 +1,44 @@
+# ========================================
+# Railway Deployment Configuration
+# ========================================
+# n8n MCP Gateway with Descope authentication
+
+[build]
+# Build context and Dockerfile
+dockerfile = "Dockerfile"
+context = "."
+
+# Health check endpoint
+[healthCheck]
+path = "/api/mcp/sse?health=true"
+port = 3000
+timeoutSeconds = 5
+intervalSeconds = 30
+gracePeriodSeconds = 10
+retries = 3
+
+# Service configuration (optional - explicitly set defaults)
+[service]
+# Railway automatically sets PORT, but we document it here for reference
+# environment = ["PORT=3000"]
+
+# ========================================
+# Environment Variables Required
+# ========================================
+# Set these in Railway dashboard under Variables:
+#
+# Descope Configuration:
+#   DESCOPE_PROJECT_ID      = Your Descope Project ID
+#   DESCOPE_AGENT_ACCESS_KEY = Your Descope Access Key (for M2M auth)
+#
+# n8n Configuration:
+#   N8N_WEBHOOK_URL         = Your n8n webhook URL
+#   N8N_API_KEY             = Your n8n API key for webhook auth
+#
+# Gateway Configuration (auto-set by Railway):
+#   PORT                    = Railway automatically sets this
+#   NEXT_PUBLIC_BASE_URL    = Set to: https://${RAILWAY_PUBLIC_DOMAIN}
+#   NODE_ENV                = Set to: production
+#
+# Example NEXT_PUBLIC_BASE_URL value:
+#   https://n8n-gateway.up.railway.app
