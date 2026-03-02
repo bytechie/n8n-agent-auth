@@ -28,6 +28,7 @@ export function extractBearerToken(authHeader: string | null): string | undefine
 
 /**
  * Validate a Descope Bearer token and return AuthInfo
+ * Supports both JWT session tokens and Access Keys
  */
 export async function validateToken(
   bearerToken: string,
@@ -37,24 +38,55 @@ export async function validateToken(
   }
 
   try {
-    // Validate the session/token with Descope
-    const authResponse = await descope.validateSession(bearerToken);
+    // Try validating as a session/JWT token first
+    try {
+      const authResponse = await descope.validateSession(bearerToken);
 
-    if (!authResponse.token?.sub) {
-      console.error('Descope token missing subject');
-      return null;
+      if (!authResponse.token?.sub) {
+        console.error('Descope token missing subject');
+        return null;
+      }
+
+      const token = authResponse.token as {
+        sub?: string;
+        scope?: string;
+        roles?: string[];
+      };
+
+      // Map Descope claims to our AuthInfo interface
+      return {
+        token: bearerToken,
+        scopes: token.scope ? token.scope.split(' ') : [],
+        clientId: token.sub || '',
+        userId: token.sub,
+        roles: token.roles || [],
+      };
+    } catch (sessionError) {
+      // If session validation fails, try as an Access Key
+      console.log('Session validation failed, trying Access Key exchange...');
+
+      const authResponse = await descope.exchangeAccessKey(bearerToken);
+
+      if (!authResponse.token?.sub) {
+        console.error('Descope Access Key exchange failed');
+        return null;
+      }
+
+      const token = authResponse.token as {
+        sub?: string;
+        scope?: string;
+        roles?: string[];
+      };
+
+      // Map Descope claims to our AuthInfo interface
+      return {
+        token: bearerToken, // Keep the original access key as the token
+        scopes: token.scope ? token.scope.split(' ') : [],
+        clientId: token.sub || '',
+        userId: token.sub,
+        roles: token.roles || [],
+      };
     }
-
-    const token = authResponse.token;
-
-    // Map Descope claims to our AuthInfo interface
-    return {
-      token: bearerToken,
-      scopes: token.scope ? token.scope.split(' ') : [],
-      clientId: token.sub,
-      userId: token.sub,
-      roles: token.roles || [],
-    };
   } catch (error) {
     console.error('Descope token validation failed:', error instanceof Error ? error.message : error);
     return null;

@@ -40,6 +40,7 @@ export async function triggerWorkflow(
   const config = getN8NConfig();
 
   console.log(`Triggering n8n workflow: ${config.webhookUrl}`);
+  console.log('API Key (first 10 chars):', config.apiKey.substring(0, 10) + '...');
   console.log('Request data:', JSON.stringify(data, null, 2));
 
   try {
@@ -52,15 +53,17 @@ export async function triggerWorkflow(
       body: JSON.stringify(data),
     });
 
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
     // Parse response
-    const responseData = await response.json().catch(() => null);
+    const responseData = await response.json().catch(() => null) as Record<string, unknown> | null;
 
     console.log(`n8n response status: ${response.status}`);
 
     if (!response.ok) {
       console.error('n8n webhook error:', responseData);
       throw new Error(
-        responseData?.error || `n8n webhook failed with status ${response.status}`,
+        (responseData?.error as string | undefined) || `n8n webhook failed with status ${response.status}`,
       );
     }
 

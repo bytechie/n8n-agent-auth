@@ -1,272 +1,193 @@
-/**
- * MCP Server Route
- * Handles Model Context Protocol requests with Descope authentication
- *
- * This route implements the MCP specification for exposing n8n workflows
- * as tools that AI agents can call.
- */
+import { NextRequest, NextResponse } from 'next/server';
+import { mcpServer } from '@/lib/mcp-server';
+import { validateOAuthToken, createUnauthorizedResponse } from '@/lib/descope-oauth';
 
-import { NextRequest } from 'next/server';
-import {
-  verifyAuthFromRequest,
-  createUnauthorizedResponse,
-  createForbiddenResponse,
-} from '@/lib/descope';
-import { availableTools, executeTool } from '@/lib/tools';
-import type { Tool, AuthInfo } from '@/types/mcp';
-
-// ========================================
-// MCP Protocol Handler
-// ========================================
-
-/**
- * Handle MCP initialization (tools/list)
- */
-async function handleToolsList(authInfo: AuthInfo) {
-  // Filter tools based on user roles/scopes if needed
-  const tools = availableTools.filter((tool) => {
-    // Example: Only admins can access certain tools
-    // if (tool.name === 'dangerous_task') {
-    //   return authInfo.roles.includes('Admin');
-    // }
-    return true;
-  });
-
-  return {
-    jsonrpc: '2.0',
-    id: null,
-    result: {
-      tools: tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      })),
-    },
-  };
-}
-
-/**
- * Handle MCP tool execution (tools/call)
- */
-async function handleToolsCall(params: any, authInfo: AuthInfo) {
-  const { name, arguments: args } = params;
-
-  if (!name) {
-    return {
-      jsonrpc: '2.0',
-      id: null,
-      error: {
-        code: -32602,
-        message: 'Invalid params: tool name is required',
-      },
-    };
-  }
-
-  // Optional: Check if user has permission for this tool
-  // if (name === 'admin_only_tool' && !authInfo.roles.includes('Admin')) {
-  //   return {
-  //     jsonrpc: '2.0',
-  //     id: null,
-  //     error: {
-  //       code: -32603,
-  //       message: 'Forbidden: insufficient permissions',
-  //     },
-  //   };
-  // }
-
-  try {
-    const result = await executeTool(name, args || {});
-
-    if (!result.isSuccess) {
-      return {
-        jsonrpc: '2.0',
-        id: null,
-        error: {
-          code: -32603,
-          message: result.error || 'Tool execution failed',
-        },
-      };
-    }
-
-    return {
-      jsonrpc: '2.0',
-      id: null,
-      result: {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(result.content),
-          },
-        ],
-      },
-    };
-  } catch (error) {
-    return {
-      jsonrpc: '2.0',
-      id: null,
-      error: {
-        code: -32603,
-        message: error instanceof Error ? error.message : 'Internal error',
-      },
-    };
-  }
-}
-
-/**
- * Handle MCP ping
- */
-async function handlePing() {
-  return {
-    jsonrpc: '2.0',
-    id: null,
-    result: {},
-  };
-}
-
-/**
- * Handle unknown method
- */
-function handleUnknownMethod(method: string) {
-  return {
-    jsonrpc: '2.0',
-    id: null,
-    error: {
-      code: -32601,
-      message: `Method not found: ${method}`,
-    },
-  };
-}
-
-// ========================================
-// HTTP Route Handlers
-// ========================================
-
-/**
- * Validate request and extract authentication
- */
-async function authenticateRequest(request: NextRequest): Promise<{ authInfo: AuthInfo | null; error?: Response }> {
-  // Skip auth for health check
-  if (request.nextUrl.searchParams.get('health') === 'true') {
-    return { authInfo: { token: '', scopes: [], clientId: 'health' } };
-  }
-
-  const authInfo = await verifyAuthFromRequest(request);
-
-  if (!authInfo) {
-    return {
-      authInfo: null,
-      error: createUnauthorizedResponse('Valid Descope token required'),
-    };
-  }
-
-  return { authInfo };
-}
-
-/**
- * Process MCP request
- */
-async function processMCPRequest(body: any, authInfo: AuthInfo) {
-  const { method, params } = body;
-
-  switch (method) {
-    case 'tools/list':
-      return handleToolsList(authInfo);
-
-    case 'tools/call':
-      return handleToolsCall(params, authInfo);
-
-    case 'ping':
-      return handlePing();
-
-    default:
-      return handleUnknownMethod(method);
-  }
-}
-
-/**
- * GET handler - For SSE/STDIO transport
- */
 export async function GET(request: NextRequest) {
-  // Health check endpoint
+  // Health check
   if (request.nextUrl.searchParams.get('health') === 'true') {
-    return new Response(
-      JSON.stringify({ status: 'ok', service: 'n8n-mcp-gateway' }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      },
-    );
+    return NextResponse.json({ status: 'ok', service: 'n8n-mcp-gateway' });
   }
 
-  // Authenticate
-  const { authInfo, error } = await authenticateRequest(request);
-
-  if (error || !authInfo) {
-    return error || createUnauthorizedResponse('Authentication failed');
-  }
-
-  // SSE support would go here for streaming
-  return new Response(
-    JSON.stringify({ status: 'ok', authenticated: true, clientId: authInfo.clientId }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    },
+  // OAuth discovery - return WWW-Authenticate header
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+  return createUnauthorizedResponse(
+    `Bearer realm="${baseUrl}/api/mcp/sse", ` +
+    `scope="mcp:run_n8n_task", ` +
+    `authorization_url="https://api.descope.com/oauth/v1/authorize"`
   );
 }
 
-/**
- * POST handler - Main MCP request handler
- */
 export async function POST(request: NextRequest) {
   // Health check
   if (request.nextUrl.searchParams.get('health') === 'true') {
-    return new Response(
-      JSON.stringify({ status: 'ok', service: 'n8n-mcp-gateway' }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      },
+    return NextResponse.json({ status: 'ok', service: 'n8n-mcp-gateway' });
+  }
+
+  // Validate OAuth token
+  const tokenInfo = await validateOAuthToken(request);
+
+  if (!tokenInfo.valid) {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    return createUnauthorizedResponse(
+      `Bearer realm="${baseUrl}/api/mcp/sse", ` +
+      `error="invalid_token", ` +
+      `error_description="${tokenInfo.error}"`
     );
   }
 
-  // Authenticate
-  const { authInfo, error } = await authenticateRequest(request);
+  // Check audience claim (for production OAuth tokens)
+  // For Access Key (M2M), audience is the Descope Project ID, which we allow
+  const expectedAud = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/mcp/sse`;
+  const descopeProjectId = process.env.DESCOPE_PROJECT_ID;
 
-  if (error || !authInfo) {
-    return error || createUnauthorizedResponse('Authentication failed');
+  // Skip audience check if:
+  // 1. No audience claim (Access Key M2M)
+  // 2. Audience is the Descope Project ID (Access Key M2M)
+  // 3. Audience matches expected URL (proper OAuth token)
+  if (tokenInfo.aud &&
+      tokenInfo.aud !== expectedAud &&
+      tokenInfo.aud !== descopeProjectId &&
+      (!Array.isArray(tokenInfo.aud) || !tokenInfo.aud.includes(descopeProjectId))) {
+    return createUnauthorizedResponse(
+      `Bearer realm="${expectedAud}", ` +
+      `error="invalid_token", ` +
+      `error_description="Invalid audience: got '${tokenInfo.aud}', expected '${expectedAud}' or '${descopeProjectId}'"`
+    );
+  }
+
+  // Check scopes (only if scopes are present)
+  const requiredScope = 'mcp:run_n8n_task';
+  if (tokenInfo.scopes && tokenInfo.scopes.length > 0 && !tokenInfo.scopes.includes(requiredScope)) {
+    return createUnauthorizedResponse(
+      `Bearer realm="${expectedAud}", ` +
+      `error="insufficient_scope", ` +
+      `scope="${requiredScope}"`
+    );
   }
 
   // Parse request body
-  let body;
+  interface MCPRequest {
+    method: string;
+    params?: any;
+    id?: string | number;
+  }
+
+  let body: MCPRequest;
   try {
-    body = await request.json();
+    body = await request.json() as MCPRequest;
   } catch {
-    return new Response(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: null,
-        error: { code: -32700, message: 'Parse error' },
-      }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    return NextResponse.json(
+      { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } },
+      { status: 400 }
     );
   }
 
-  // Process MCP request
-  const response = await processMCPRequest(body, authInfo);
+  // Handle MCP request manually
+  const { method, params, id } = body;
 
-  return new Response(JSON.stringify(response), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Auth-Client-Id': authInfo.clientId,
-    },
-  });
+  try {
+    let result;
+
+    switch (method) {
+      case 'initialize':
+        result = {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: '2024-11-05',
+            serverInfo: {
+              name: 'n8n-mcp-gateway',
+              version: '1.0.0',
+            },
+            capabilities: {
+              tools: {},
+            },
+          },
+        };
+        break;
+
+      case 'tools/list':
+        result = {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            tools: [
+              {
+                name: 'run_n8n_task',
+                description: 'Executes an n8n workflow with the provided data',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'object',
+                      description: 'Data to pass to the n8n workflow',
+                    },
+                    workflow: {
+                      type: 'string',
+                      description: 'Optional: Name of the specific workflow to execute',
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        };
+        break;
+
+      case 'tools/call':
+        const { name, arguments: args } = params;
+        if (name !== 'run_n8n_task') {
+          result = {
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `Tool not found: ${name}` },
+          };
+        } else {
+          const { triggerWorkflow } = await import('@/lib/n8n');
+          const workflowResult = await triggerWorkflow(args?.data || args);
+          result = {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(workflowResult.data),
+                },
+              ],
+            },
+          };
+        }
+        break;
+
+      case 'ping':
+        result = { jsonrpc: '2.0', id, result: {} };
+        break;
+
+      default:
+        result = {
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32601, message: `Method not found: ${method}` },
+        };
+    }
+
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32603,
+          message: error instanceof Error ? error.message : 'Internal error',
+        },
+      },
+      { status: 500 }
+    );
+  }
 }
 
-/**
- * OPTIONS handler - CORS support
- */
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -274,7 +195,6 @@ export async function OPTIONS() {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
     },
   });
 }

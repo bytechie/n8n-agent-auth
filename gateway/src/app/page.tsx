@@ -1,6 +1,7 @@
 /**
  * n8n MCP Gateway - Home Page
  */
+'use client';
 
 export default function HomePage() {
   return (

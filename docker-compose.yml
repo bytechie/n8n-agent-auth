@@ -3,7 +3,7 @@
 # ========================================
 # Local development environment with n8n and MCP Gateway
 
-version: '3.9'
+# version: '3.9'
 
 services:
   # ========================================
@@ -16,14 +16,13 @@ services:
     container_name: n8n-mcp-gateway
     ports:
       - "${PORT:-3000}:3000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=development
       - PORT=3000
-      - DESCOPE_PROJECT_ID=${DESCOPE_PROJECT_ID}
-      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/test-workflow}
-      - N8N_API_KEY=${N8N_API_KEY}
-    env_file:
-      - .env
+      # Override N8N_WEBHOOK_URL to use Docker network hostname
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/mcp-gateway
     depends_on:
       - n8n
     networks:
