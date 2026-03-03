@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mcpServer } from '@/lib/mcp-server';
-import { validateOAuthToken, createUnauthorizedResponse } from '@/lib/descope-oauth';
+import { validateOAuthToken, createUnauthorizedResponse, createInsufficientScopeResponse } from '@/lib/descope-oauth';
 
 export async function GET(request: NextRequest) {
   // Health check
@@ -29,9 +29,11 @@ export async function POST(request: NextRequest) {
   if (!tokenInfo.valid) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
     return createUnauthorizedResponse(
-      `Bearer realm="${baseUrl}/api/mcp/sse", ` +
-      `error="invalid_token", ` +
-      `error_description="${tokenInfo.error}"`
+      `Bearer realm="${baseUrl}/api/mcp/sse", error="invalid_token"`,
+      {
+        error: 'invalid_token',
+        error_description: tokenInfo.error || 'Token validation failed',
+      }
     );
   }
 
@@ -56,13 +58,17 @@ export async function POST(request: NextRequest) {
   }
 
   // Check scopes (only if scopes are present)
-  const requiredScope = 'mcp:run_n8n_task';
-  if (tokenInfo.scopes && tokenInfo.scopes.length > 0 && !tokenInfo.scopes.includes(requiredScope)) {
-    return createUnauthorizedResponse(
-      `Bearer realm="${expectedAud}", ` +
-      `error="insufficient_scope", ` +
-      `scope="${requiredScope}"`
-    );
+  // MCP spec compliant: require specific scope for tool execution
+  const requiredScopes = ['mcp:run_n8n_task'];
+  const tokenScopes = tokenInfo.scopes || [];
+
+  // If token has scopes but doesn't have required scopes, return insufficient scope error
+  if (tokenScopes.length > 0 && !requiredScopes.every(scope => tokenScopes.includes(scope))) {
+    return createInsufficientScopeResponse({
+      realm: expectedAud,
+      tokenScopes,
+      requiredScopes,
+    });
   }
 
   // Parse request body

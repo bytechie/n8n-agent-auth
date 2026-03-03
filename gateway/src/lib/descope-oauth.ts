@@ -23,6 +23,8 @@ export interface TokenInfo {
   userId?: string;
   tenantId?: string;
   error?: string;
+  // For enhanced scope validation
+  rawToken?: any;
 }
 
 export async function validateOAuthToken(request: NextRequest): Promise<TokenInfo> {
@@ -76,10 +78,11 @@ export async function validateOAuthToken(request: NextRequest): Promise<TokenInf
 }
 
 export function createUnauthorizedResponse(
-  wwwAuthenticate: string
+  wwwAuthenticate: string,
+  body?: Record<string, unknown>
 ): Response {
   return new Response(
-    JSON.stringify({ error: 'Unauthorized' }),
+    JSON.stringify(body || { error: 'Unauthorized' }),
     {
       status: 401,
       headers: {
@@ -88,4 +91,39 @@ export function createUnauthorizedResponse(
       },
     }
   );
+}
+
+/**
+ * Create an insufficient scope error response (MCP spec compliant)
+ * Based on Descope Python MCP SDK's InsufficientScopeError
+ */
+export function createInsufficientScopeResponse(params: {
+  realm: string;
+  tokenScopes: string[];
+  requiredScopes: string[];
+}): Response {
+  const { realm, tokenScopes, requiredScopes } = params;
+
+  // Find missing scopes
+  const missingScopes = requiredScopes.filter(scope => !tokenScopes.includes(scope));
+
+  // Combine all scopes (existing + required) as per MCP spec recommendation
+  const allScopes = Array.from(new Set([...tokenScopes, ...requiredScopes]));
+
+  const errorBody = {
+    error: 'insufficient_scope',
+    scope: allScopes.join(' '),
+    error_description: `Missing required scope: ${missingScopes.join(', ')}`,
+    missing_scopes: missingScopes,
+    token_scopes: tokenScopes,
+    required_scopes: requiredScopes,
+  };
+
+  return new Response(JSON.stringify(errorBody), {
+    status: 401,
+    headers: {
+      'Content-Type': 'application/json',
+      'WWW-Authenticate': `Bearer realm="${realm}", error="insufficient_scope", scope="${allScopes.join(' ')}"`,
+    },
+  });
 }
