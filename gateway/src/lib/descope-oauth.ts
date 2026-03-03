@@ -1,9 +1,20 @@
 import { NextRequest } from 'next/server';
 import DescopeClient from '@descope/node-sdk';
 
-const client = DescopeClient({
-  projectId: process.env.DESCOPE_PROJECT_ID!,
-});
+// Lazy initialization of Descope client to avoid build-time errors
+// The client is only initialized when first needed at runtime
+let client: ReturnType<typeof DescopeClient> | null = null;
+
+function getClient() {
+  if (!client) {
+    const projectId = process.env.DESCOPE_PROJECT_ID;
+    if (!projectId) {
+      throw new Error('DESCOPE_PROJECT_ID environment variable is not set');
+    }
+    client = DescopeClient({ projectId });
+  }
+  return client;
+}
 
 export interface TokenInfo {
   valid: boolean;
@@ -25,7 +36,7 @@ export async function validateOAuthToken(request: NextRequest): Promise<TokenInf
 
   try {
     // Validate using Descope's session validation
-    const session = await client.validateSession(token);
+    const session = await getClient().validateSession(token);
 
     if (session) {
       const sessionToken = session.token as any;
@@ -43,7 +54,7 @@ export async function validateOAuthToken(request: NextRequest): Promise<TokenInf
 
   try {
     // Try Access Key exchange (for M2M)
-    const exchange = await client.exchangeAccessKey(token);
+    const exchange = await getClient().exchangeAccessKey(token);
     if (exchange) {
       const exchangeToken = exchange.token as any;
       return {

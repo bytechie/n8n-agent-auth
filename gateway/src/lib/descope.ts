@@ -6,10 +6,19 @@
 import DescopeClient from '@descope/node-sdk';
 import type { AuthInfo } from '@/types/mcp';
 
-// Initialize Descope client
-const descope = DescopeClient({
-  projectId: process.env.DESCOPE_PROJECT_ID || '',
-});
+// Lazy initialization of Descope client to avoid build-time errors
+let descope: ReturnType<typeof DescopeClient> | null = null;
+
+function getDescopeClient() {
+  if (!descope) {
+    const projectId = process.env.DESCOPE_PROJECT_ID;
+    if (!projectId) {
+      throw new Error('DESCOPE_PROJECT_ID environment variable is not set');
+    }
+    descope = DescopeClient({ projectId });
+  }
+  return descope;
+}
 
 /**
  * Extract Bearer token from Authorization header
@@ -40,7 +49,7 @@ export async function validateToken(
   try {
     // Try validating as a session/JWT token first
     try {
-      const authResponse = await descope.validateSession(bearerToken);
+      const authResponse = await getDescopeClient().validateSession(bearerToken);
 
       if (!authResponse.token?.sub) {
         console.error('Descope token missing subject');
@@ -65,7 +74,7 @@ export async function validateToken(
       // If session validation fails, try as an Access Key
       console.log('Session validation failed, trying Access Key exchange...');
 
-      const authResponse = await descope.exchangeAccessKey(bearerToken);
+      const authResponse = await getDescopeClient().exchangeAccessKey(bearerToken);
 
       if (!authResponse.token?.sub) {
         console.error('Descope Access Key exchange failed');
