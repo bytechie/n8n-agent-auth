@@ -215,7 +215,18 @@ railway domain
 
 ## Testing the Deployment
 
+### Test Overview
+
+| Test | Validates | Endpoint |
+|------|-----------|----------|
+| **Health Check** | Railway service is running | `/api/mcp/sse?health=true` |
+| **OAuth Metadata** | MCP spec compliance | `/.well-known/oauth-protected-metadata` |
+| **MCP Connection** | Descope authentication | `/api/mcp/sse` + tools/list |
+| **Workflow Execution** | End-to-end n8n integration | `/api/mcp/sse` + tools/call |
+
 ### 1. Health Check
+
+Verifies the Railway service is running and responding.
 
 ```bash
 curl https://your-gateway.up.railway.app/api/mcp/sse?health=true
@@ -228,17 +239,149 @@ Expected response:
 
 ### 2. OAuth Metadata
 
+Verifies MCP spec compliance and Descope configuration.
+
 ```bash
 curl https://your-gateway.up.railway.app/.well-known/oauth-protected-metadata
 ```
 
-### 3. Test MCP Connection
+Expected response:
+```json
+{
+  "authorization_endpoint": "https://api.descope.com/oauth/v1/authorize",
+  "token_endpoint": "https://api.descope.com/oauth/v1/token",
+  "issuer": "https://api.descope.com/v1/apps/customized/YOUR_PROJECT_ID",
+  "jwks_uri": "https://api.descope.com/YOUR_PROJECT_ID/.well-known/jwks.json",
+  "scopes": ["mcp:run_n8n_task"],
+  "authorization_server": "https://api.descope.com",
+  "resource": "your-gateway.up.railway.app/api/mcp/sse"
+}
+```
+
+### 3. MCP Connection (tools/list)
+
+Verifies Descope authentication and returns available MCP tools.
+
+Replace `YOUR_DESCOPE_ACCESS_KEY` with your actual access key from Descope.
 
 ```bash
 curl -X POST https://your-gateway.up.railway.app/api/mcp/sse \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_DESCOPE_ACCESS_KEY" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+Expected response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "tools": [
+      {
+        "name": "run_n8n_task",
+        "description": "Executes an n8n workflow with the provided data",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "object",
+              "description": "Data to pass to the n8n workflow"
+            },
+            "workflow": {
+              "type": "string",
+              "description": "Optional: Name of the specific workflow to execute"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+### 4. End-to-End Workflow Execution
+
+Tests the complete flow: **Railway → Descope Auth → n8n Workflow → Response**
+
+```bash
+curl -X POST https://your-gateway.up.railway.app/api/mcp/sse \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_DESCOPE_ACCESS_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 2,
+    "params": {
+      "name": "run_n8n_task",
+      "arguments": {
+        "data": {
+          "test": true,
+          "message": "Hello from Railway MCP!",
+          "source": "integration_test"
+        }
+      }
+    }
+  }'
+```
+
+Expected response (varies based on your n8n workflow):
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"message\":\"...\",\"receivedData\":\"...\"}"
+      }
+    ]
+  }
+}
+```
+
+### 5. Verify in Descope Console
+
+After running the tests, verify the authentication was logged:
+
+1. Go to [Descope Console](https://app.descope.com)
+2. Navigate to **Audit and Troubleshoot** → **Audit Logs**
+3. Look for `AccessKeyExchange` events with:
+   - **Actor ID**: Your Access Key (first ~30 characters)
+   - **Action**: `AccessKeyExchange`
+   - **Country**: Your region
+
+### 6. Verify in n8n
+
+Check that your n8n workflow received the webhook:
+
+1. Open your n8n instance
+2. Go to **Executions** → **Workflow Runs**
+3. View the latest execution output
+4. Verify `body` contains your test data:
+   ```json
+   {
+     "test": true,
+     "message": "Hello from Railway MCP!",
+     "source": "integration_test"
+   }
+   ```
+
+### Integration Flow Verification
+
+When all tests pass, the complete flow is working:
+
+```
+┌─────────┐     ┌──────────┐     ┌─────────┐     ┌─────────┐
+│   Test  │ ──▶ │ Railway  │ ──▶ │ Descope │ ──▶ │   n8n   │
+│ Command │     │ Gateway  │     │   Auth  │     │ Workflow │
+└─────────┘     └──────────┘     └─────────┘     └─────────┘
+                      │                                 │
+                      ▼                                 ▼
+                Health Check                    Response Data
+                OAuth Metadata                  Audit Log Entry
+                MCP Protocol                    Webhook Received
 ```
 
 ---
