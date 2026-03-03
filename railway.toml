@@ -17,28 +17,57 @@ intervalSeconds = 30
 gracePeriodSeconds = 10
 retries = 3
 
-# Service configuration (optional - explicitly set defaults)
+# ========================================
+# Environment Variables
+# ========================================
+# Set these in Railway dashboard (Project Settings → Variables)
+# Variables marked with [service] below can also be set in railway.toml
+
 [service]
-# Railway automatically sets PORT, but we document it here for reference
-# environment = ["PORT=3000"]
+# Production environment
+NODE_ENV = "production"
+
+# Gateway URL (uses Railway's public domain variable)
+# Railway will automatically replace ${RAILWAY_PUBLIC_DOMAIN} with actual domain
+NEXT_PUBLIC_BASE_URL = "https://${RAILWAY_PUBLIC_DOMAIN}"
 
 # ========================================
-# Environment Variables Required
+# Required Variables (set in Railway Dashboard)
 # ========================================
-# Set these in Railway dashboard under Variables:
+# Go to Railway → Project Settings → Variables and add:
 #
-# Descope Configuration:
-#   DESCOPE_PROJECT_ID      = Your Descope Project ID
-#   DESCOPE_AGENT_ACCESS_KEY = Your Descope Access Key (for M2M auth)
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ Descope Configuration                                               │
+# ├─────────────────────────────────────────────────────────────────────┤
+# │ DESCOPE_PROJECT_ID          = Your Descope Project ID               │
+# │ DESCOPE_AGENT_ACCESS_KEY   = Your Descope Access Key               │
+# │                             (generate in Descope → Access Keys)     │
+# ├─────────────────────────────────────────────────────────────────────┤
+# │ n8n Configuration                                                   │
+# ├─────────────────────────────────────────────────────────────────────┤
+# │ N8N_WEBHOOK_URL             = Your n8n webhook URL                  │
+# │                             Example: https://n8n.app.up.railway.app│
+# │                                      /webhook/mcp-gateway          │
+# │ N8N_API_KEY                 = Your n8n API key for webhook auth    │
+# │                             (must match n8n webhook header value)  │
+# ├─────────────────────────────────────────────────────────────────────┤
+# │ Optional Variables                                                   │
+# ├─────────────────────────────────────────────────────────────────────┤
+# │ GATEWAY_PUBLIC_URL         = (Legacy, use NEXT_PUBLIC_BASE_URL)    │
+# │ N8N_BASE_URL               = Base URL for n8n (optional)           │
+# │ N8N_WEBHOOK_PATH           = Webhook path (optional)               │
+# └─────────────────────────────────────────────────────────────────────┘
 #
-# n8n Configuration:
-#   N8N_WEBHOOK_URL         = Your n8n webhook URL
-#   N8N_API_KEY             = Your n8n API key for webhook auth
+# Quick setup for n8n on Railway:
+# 1. Create n8n service in same Railway project
+# 2. Set N8N_WEBHOOK_URL = https://your-n8n-service.up.railway.app/webhook/mcp-gateway
+# 3. Generate and set N8N_API_KEY
+# 4. Configure n8n webhook with Header Auth:
+#    - Header Name: X-N8N-API-KEY
+#    - Header Value: (same as N8N_API_KEY)
 #
-# Gateway Configuration (auto-set by Railway):
-#   PORT                    = Railway automatically sets this
-#   NEXT_PUBLIC_BASE_URL    = Set to: https://${RAILWAY_PUBLIC_DOMAIN}
-#   NODE_ENV                = Set to: production
-#
-# Example NEXT_PUBLIC_BASE_URL value:
-#   https://n8n-gateway.up.railway.app
+# Example values for testing:
+# DESCOPE_PROJECT_ID=P3AM5...
+# DESCOPE_AGENT_ACCESS_KEY=K3AM7...
+# N8N_WEBHOOK_URL=https://n8n-app.up.railway.app/webhook/mcp-gateway
+# N8N_API_KEY=your-secure-api-key-here
